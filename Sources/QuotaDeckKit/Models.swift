@@ -148,8 +148,10 @@ public enum Fmt {
     }
 
     public static let expires: DateFormatter = {
+        // Short date in the user's own format: 4/11/26 in the US, 04/11/26 in Europe.
         let f = DateFormatter()
-        f.dateFormat = "dd/MM/yy"
+        f.dateStyle = .short
+        f.timeStyle = .none
         return f
     }()
 

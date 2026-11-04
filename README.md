@@ -32,10 +32,12 @@ have left, for every account on your Mac.
 
 ## Requirements
 
-- macOS 14 (Sonoma) or later, Apple silicon
+- macOS 14 (Sonoma) or later, Apple silicon or Intel
 - At least one of:
-  - **Codex CLI**, signed in (`~/.codex/auth.json`)
-  - **Claude Code** accounts managed by [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
+  - **Claude Code**, signed in with a Claude subscription (Pro, Max, Team…). API-key logins have no
+    subscription quota to show.
+  - **Codex CLI**, signed in with ChatGPT (`~/.codex/auth.json`)
+  - Claude Code or Codex accounts managed by [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 
 ## Installation
 
@@ -92,16 +94,37 @@ Clicking a widget opens the menu bar menu.
 
 | Provider | Where accounts come from | Endpoint |
 |---|---|---|
+| Claude Code | Claude Code's sign-in: the `Claude Code-credentials` item in the login keychain (or `~/.claude/.credentials.json`), plus extra config directories `~/.claude-*` / `$CLAUDE_CONFIG_DIR`; and `claude` accounts in CLIProxyAPI | `api.anthropic.com/api/oauth/usage` |
 | Codex | `~/.codex/auth.json`, `~/.codex-*/auth.json`, `$CODEX_HOME`, and `codex` accounts in CLIProxyAPI | `chatgpt.com/backend-api/wham/usage` |
-| Claude Code | CLIProxyAPI auth files (`auth-dir` in `~/.config/cliproxyapi/config.yaml`, default `~/.config/cliproxyapi/auth/`) | `api.anthropic.com/api/oauth/usage` |
 
-- The app reads tokens from disk on every refresh. It never refreshes or writes them; the Codex CLI
-  and CLIProxyAPI keep them up to date.
+CLIProxyAPI auth files are read from the `auth-dir` set in `~/.config/cliproxyapi/config.yaml`,
+`~/.cli-proxy-api/config.yaml` or Homebrew's `cliproxyapi.conf`, and from the default
+`~/.cli-proxy-api/`. An account found in several places is shown once.
+
+- The app reads tokens on every refresh. It never refreshes or writes them; Claude Code, the Codex
+  CLI and CLIProxyAPI keep them up to date. If you have not used a CLI for a while its token may
+  expire: the account then shows the last known values until you use the CLI again.
+- The keychain item is read with macOS's `security` tool, which Claude Code itself uses to store
+  it, so macOS does not ask for permission. If it ever asks, choose *Always Allow*.
 - After each refresh, it writes `~/Library/Application Support/QuotaDeck/widget-snapshot.json`
   with percentages, dates, plans and emails only, **never tokens**.
 - The widget extension is sandboxed and can only read that file.
 - WidgetKit is asked to redraw at most once a minute. Between redraws the widget timeline advances
   every 2 minutes to keep countdowns accurate.
+
+## Troubleshooting
+
+An account is missing? List what QuotaDeck finds and where (tokens are never printed):
+
+```sh
+/Applications/QuotaDeck.app/Contents/MacOS/QuotaDeck --list-accounts
+```
+
+Use `~/Applications/…` if you installed it there. When opening an issue, include this output with
+the emails removed.
+
+`$CODEX_HOME` and `$CLAUDE_CONFIG_DIR` are only seen when QuotaDeck is started from a terminal
+that has them set; directories named `~/.codex-*` and `~/.claude-*` are always found.
 
 ## Privacy
 
@@ -121,7 +144,8 @@ be subject to each provider's terms of service. Use QuotaDeck at your own risk.
 
 ```sh
 swift build                    # debug build
-./scripts/build.sh             # release app bundle in build/
+./scripts/build.sh             # release app bundle in build/ (universal)
+ARCHS=arm64 ./scripts/build.sh # faster, Apple silicon only
 ```
 
 `scripts/build.sh` packages the widget extension (`Contents/PlugIns/QuotaDeckWidget.appex`) and

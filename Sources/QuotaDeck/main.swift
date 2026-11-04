@@ -206,6 +206,16 @@ func runWidgetSnapshot(to path: String, dark: Bool) {
 
 let app = NSApplication.shared
 let args = CommandLine.arguments
+if args.contains("--list-accounts") {
+    // Troubleshooting: what QuotaDeck finds on this Mac and where (never prints tokens).
+    let refs = Discovery.accounts()
+    if refs.isEmpty { print("No Claude Code or Codex accounts found.") }
+    for r in refs {
+        let expiry = r.expiresAt.map { " (token expires \($0.formatted(date: .abbreviated, time: .shortened)))" } ?? ""
+        print("\(r.provider.title): \(r.email)\n  from \(r.source)\(expiry)")
+    }
+    exit(0)
+}
 if let i = args.firstIndex(of: "--widget-snapshot"), i + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     MainActor.assumeIsolated { runWidgetSnapshot(to: args[i + 1], dark: args.contains("--dark")) }

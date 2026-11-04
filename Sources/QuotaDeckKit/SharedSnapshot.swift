@@ -30,8 +30,10 @@ public enum SharedSnapshot {
     }()
 
     public static func write(_ snapshot: WidgetSnapshot) throws {
+        // Owner-only: the snapshot holds account emails.
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
+                                                withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .secondsSince1970
         try enc.encode(snapshot).write(to: url, options: .atomic)

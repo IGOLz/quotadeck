@@ -4,9 +4,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release --product QuotaDeck
-swift build -c release --product QuotaDeckWidget
-BIN="$(swift build -c release --show-bin-path)"
+# Universal by default (Intel and Apple silicon). ARCHS="arm64" builds faster for local use.
+# The host-like arch goes last: the App Intents step below reads its compiled modules.
+ARCHS=(${=ARCHS:-x86_64 arm64})
+ARCH="${ARCHS[-1]}"
+STAGE="$(mktemp -d)"
+for arch in "${ARCHS[@]}"; do
+  swift build -c release --arch "$arch" --product QuotaDeck
+  swift build -c release --arch "$arch" --product QuotaDeckWidget
+  BIN="$(swift build -c release --arch "$arch" --show-bin-path)"
+  mkdir -p "$STAGE/$arch"
+  cp "$BIN/QuotaDeck" "$BIN/QuotaDeckWidget" "$STAGE/$arch/"
+done
 
 APP=build/QuotaDeck.app
 APPEX="$APP/Contents/PlugIns/QuotaDeckWidget.appex"
@@ -14,10 +23,11 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APPEX/Contents/MacOS"
 
 mkdir -p "$APPEX/Contents/Resources"
-cp "$BIN/QuotaDeck" "$APP/Contents/MacOS/"
+lipo -create "$STAGE"/*/QuotaDeck -output "$APP/Contents/MacOS/QuotaDeck"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/Logos/codex.png "$APP/Contents/Resources/"
-cp "$BIN/QuotaDeckWidget" "$APPEX/Contents/MacOS/"
+lipo -create "$STAGE"/*/QuotaDeckWidget -output "$APPEX/Contents/MacOS/QuotaDeckWidget"
+rm -rf "$STAGE"
 cp Resources/Widget/Info.plist "$APPEX/Contents/"
 cp Resources/Logos/codex.png "$APPEX/Contents/Resources/"
 strip -x "$APP/Contents/MacOS/QuotaDeck" "$APPEX/Contents/MacOS/QuotaDeckWidget"
@@ -40,7 +50,7 @@ for src in "${WIDGET_SOURCES[@]}"; do
   others=("${(@)WIDGET_SOURCES:#$src}")
   xcrun swiftc -frontend -typecheck -primary-file "$src" "${others[@]}" \
     -module-name QuotaDeckWidget -parse-as-library -swift-version 5 \
-    -target arm64-apple-macos14.0 -sdk "$SDK" -I "$BIN" \
+    -target "$ARCH-apple-macos14.0" -sdk "$SDK" -I "$BIN" \
     -emit-const-values-path "$out" -const-gather-protocols-file "$AI/protocols.json"
   echo "$PWD/$src" >> "$AI/sources.txt"
   echo "$out" >> "$AI/constvals.txt"
@@ -49,7 +59,7 @@ xcrun appintentsmetadataprocessor --output "$APPEX/Contents/Resources" \
   --toolchain-dir "$(dirname "$(dirname "$(dirname "$(xcrun --find swiftc)")")")" \
   --module-name QuotaDeckWidget --sdk-root "$SDK" \
   --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
-  --platform-family macOS --deployment-target 14.0 --target-triple arm64-apple-macos14.0 \
+  --platform-family macOS --deployment-target 14.0 --target-triple "$ARCH-apple-macos14.0" \
   --source-file-list "$AI/sources.txt" --swift-const-vals-list "$AI/constvals.txt" \
   --force --quiet-warnings 2>&1 | grep -viE "^\S+ \S+ appintentsmetadataprocessor\[" || true
 rm -rf "$AI"
