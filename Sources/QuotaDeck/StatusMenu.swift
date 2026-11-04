@@ -222,6 +222,64 @@ private struct WindowRow: View {
     }
 }
 
+// MARK: - Snapshot
+
+/// The menu as one SwiftUI view, for `--menu-snapshot` (README screenshots). The account
+/// rows are the real ones; the native items are drawn to match NSMenu's layout.
+struct MenuSnapshot: View {
+    let settings: Settings
+    @EnvironmentObject var store: UsageStore
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MenuHeader()
+            separator
+            ForEach(Array(store.accounts.enumerated()), id: \.element.id) { i, account in
+                if i > 0 { separator }
+                MenuAccountRow(id: account.id)
+            }
+            separator
+            item("Refresh Now", shortcut: "⌘R")
+            item("Refresh Every", submenu: true)
+            separator
+            item("Show Floating Panel", checked: settings.showWidget)
+            item("Keep Panel on Top", checked: settings.widgetOnTop, enabled: settings.showWidget)
+            item("Launch at Login", checked: settings.launchAtLogin)
+            separator
+            item("Quit QuotaDeck", shortcut: "⌘Q")
+        }
+        .padding(.vertical, 6)
+        .frame(width: StatusMenu.width)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(scheme == .dark ? Color(white: 0.16) : Color(white: 0.97))
+            .shadow(color: .black.opacity(0.25), radius: 12, y: 4))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+    }
+
+    private var separator: some View {
+        Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1)
+            .padding(.horizontal, 14).padding(.vertical, 5)
+    }
+
+    private func item(_ title: String, shortcut: String? = nil, submenu: Bool = false,
+                      checked: Bool = false, enabled: Bool = true) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold))
+                .frame(width: 15).opacity(checked ? 1 : 0)
+            Text(title)
+            Spacer()
+            if let shortcut { Text(shortcut).foregroundStyle(.secondary) }
+            if submenu { Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)) }
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(enabled ? .primary : .tertiary)
+        .padding(.horizontal, 14)
+        .frame(height: 22)
+    }
+}
+
 enum MenuTheme {
     static func tint(_ p: Provider) -> Color {
         p == .claude ? Theme.claude : Color(red: 0.30, green: 0.36, blue: 1.0)  // Codex logo blue

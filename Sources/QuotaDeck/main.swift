@@ -117,7 +117,33 @@ func runSnapshot(to path: String, dark: Bool) {
     }
 }
 
-/// Renders the WidgetKit layouts (small, medium, large, extra large) side by side.
+/// Renders the menu bar menu (account rows plus a replica of the native items).
+@MainActor
+func runMenuSnapshot(to path: String, dark: Bool) {
+    let store = UsageStore()
+    store.refresh(force: true)
+    Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { t in
+        MainActor.assumeIsolated {
+            guard !store.isRefreshing else { return }
+            t.invalidate()
+            let view = MenuSnapshot(settings: Settings.shared)
+                .environmentObject(store)
+                .padding(24)
+                .background(dark ? Color(white: 0.05) : Color(white: 0.9))
+                .environment(\.colorScheme, dark ? .dark : .light)
+            let r = ImageRenderer(content: view)
+            r.scale = 2
+            if let img = r.nsImage, let tiff = img.tiffRepresentation,
+               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                try? png.write(to: URL(fileURLWithPath: path))
+                print("wrote \(path)")
+            }
+            exit(0)
+        }
+    }
+}
+
+/// Renders the WidgetKit layouts (small, medium, large, extra large) in one image.
 @MainActor
 func runWidgetSnapshot(to path: String, dark: Bool) {
     let store = UsageStore()
@@ -148,12 +174,18 @@ func runWidgetSnapshot(to path: String, dark: Bool) {
                     .frame(width: 164, height: 164)
                     .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(bg))
             }
-            let view = VStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .top, spacing: 20) {
-                    ForEach(entry.accounts) { single($0) }
-                }
-                HStack(alignment: .top, spacing: 20) {
-                    ForEach(0..<3, id: \.self) { i in tile(families[i].0, families[i].1) }
+            // A gapless grid: large | (medium over two smalls), then extra large below.
+            // With 16 pt gutters, 2 smalls = 1 medium wide and 2 larges = 1 extra large wide.
+            let view = VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
+                    tile(families[2].0, families[2].1)
+                    VStack(alignment: .leading, spacing: 16) {
+                        tile(families[1].0, families[1].1)
+                        HStack(spacing: 16) {
+                            if let first = entry.accounts.first { single(first) }
+                            tile(families[0].0, families[0].1)
+                        }
+                    }
                 }
                 tile(families[3].0, families[3].1)
             }
@@ -177,6 +209,10 @@ let args = CommandLine.arguments
 if let i = args.firstIndex(of: "--widget-snapshot"), i + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     MainActor.assumeIsolated { runWidgetSnapshot(to: args[i + 1], dark: args.contains("--dark")) }
+    app.run()
+} else if let i = args.firstIndex(of: "--menu-snapshot"), i + 1 < args.count {
+    app.setActivationPolicy(.prohibited)
+    MainActor.assumeIsolated { runMenuSnapshot(to: args[i + 1], dark: args.contains("--dark")) }
     app.run()
 } else if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
     app.setActivationPolicy(.prohibited)

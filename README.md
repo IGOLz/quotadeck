@@ -18,9 +18,17 @@ have left, for every account on your Mac.
 - Written in Swift with SwiftUI and AppKit. No dependencies and no CPU use while idle.
 
 <p>
+  <img src="docs/menu-light.png" width="300" alt="Menu bar menu, light mode">
+  <img src="docs/menu-dark.png" width="300" alt="Menu bar menu, dark mode">
+</p>
+
+<details>
+<summary>Floating panel</summary>
+<p>
   <img src="docs/light.png" width="300" alt="Floating panel, light mode">
   <img src="docs/dark.png" width="300" alt="Floating panel, dark mode">
 </p>
+</details>
 
 ## Requirements
 
@@ -124,6 +132,7 @@ are at the top of the script).
 Render with real data without opening the UI, useful for screenshots:
 
 ```sh
+build/QuotaDeck.app/Contents/MacOS/QuotaDeck --menu-snapshot out.png [--dark]    # menu bar menu
 build/QuotaDeck.app/Contents/MacOS/QuotaDeck --snapshot out.png [--dark]         # floating panel
 build/QuotaDeck.app/Contents/MacOS/QuotaDeck --widget-snapshot out.png [--dark]  # all widget sizes
 ```
