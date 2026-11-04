@@ -1,57 +1,140 @@
-# QuotaDeck
+# <img src="docs/icon.png" width="44" align="top" alt=""> QuotaDeck
 
-Widget nativo per macOS che mostra la quota **residua** di Claude Code e Codex per
-**tutti gli account** presenti sul Mac, sempre aggiornata.
+A native macOS widget and menu bar app that shows how much **Claude Code** and **Codex** quota you
+have left, for every account on your Mac.
+
+<p><img src="docs/widgets.png" width="640" alt="QuotaDeck widgets in small, medium, large and extra large sizes"></p>
+
+## Features
+
+- **Real macOS widgets** (WidgetKit) for the desktop or Notification Center:
+  - **QuotaDeck**: all accounts at once, in small, medium, large and extra large sizes.
+  - **QuotaDeck Account**: one account in a small widget. You choose the account with *Edit Widget*.
+- **Menu bar icon** with a native menu: remaining quota and reset time for each account.
+- **Optional floating panel**, in light and dark mode.
+- Weekly and 5-hour windows, plus a **pace marker** that shows whether you are using quota faster
+  than a steady rate.
+- Shows each account's **plan** (e.g. *Claude Max 20x*, *ChatGPT Pro*).
+- Written in Swift with SwiftUI and AppKit. No dependencies and no CPU use while idle.
 
 <p>
-  <img src="docs/light.png" width="300" alt="QuotaDeck, tema chiaro">
-  <img src="docs/dark.png" width="300" alt="QuotaDeck, tema scuro">
+  <img src="docs/light.png" width="300" alt="Floating panel, light mode">
+  <img src="docs/dark.png" width="300" alt="Floating panel, dark mode">
 </p>
 
-- **Swift + SwiftUI/AppKit**, nessuna dipendenza: app da ~320 KB, CPU a 0% quando è inattiva.
-- **Widget desktop** sempre visibile (trascinabile, su tutti gli Space) e icona nella **barra dei menu** con popover.
-- Si aggiorna ogni 60 s (configurabile: 30 s / 1 / 2 / 5 min), al risveglio dal sonno e all'apertura del popover.
+## Requirements
 
-## Fonti dati
+- macOS 14 (Sonoma) or later, Apple silicon
+- At least one of:
+  - **Codex CLI**, signed in (`~/.codex/auth.json`)
+  - **Claude Code** accounts managed by [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 
-| Provider | Account | Endpoint |
+## Installation
+
+1. Download `QuotaDeck-<version>.zip` from the [latest release](https://github.com/IGOLz/quotadeck/releases/latest).
+2. Unzip it and move `QuotaDeck.app` to your Applications folder.
+3. Open it. QuotaDeck lives in the menu bar; it has no Dock icon.
+
+The app is signed with a Developer ID and notarized by Apple.
+
+### Build from source
+
+Requires Xcode 16 or later (Swift 6 toolchain).
+
+```sh
+git clone https://github.com/IGOLz/quotadeck.git
+cd quotadeck
+./scripts/build.sh --install
+```
+
+This builds `QuotaDeck.app`, copies it to `~/Applications` and launches it.
+Run `./scripts/build.sh` without `--install` to only build it into `build/`.
+Local builds are ad-hoc signed, so they run on the Mac where you build them without an Apple
+Developer account.
+
+## Usage
+
+**Menu bar.** Click the QuotaDeck icon to see every account. The menu also has:
+
+- *Refresh Now* (⌘R)
+- *Refresh Every*: 30 seconds, 1, 2 or 5 minutes (default: 1 minute)
+- *Show Floating Panel* and *Keep Panel on Top*
+- *Launch at Login*
+
+**Widgets.**
+
+1. Right-click the desktop and choose **Edit Widgets…**
+2. Search for **QuotaDeck** and drag a widget where you want it.
+3. For **QuotaDeck Account**, right-click the widget, choose **Edit Widget** and pick the account.
+   Add one widget per account if you want them separate.
+
+Clicking a widget opens the menu bar menu.
+
+### Reading the numbers
+
+- **Big percentage**: quota left in the window (weekly or 5 hours).
+- **Vertical marker** (weekly only): where the bar would be at a steady pace. If the bar ends
+  before the marker, you are using quota faster than that pace.
+- **Reset ×N** (Codex): available rate-limit reset credits.
+- **Expires** (Codex): when the ChatGPT subscription ends.
+- **Orange "Updated…" text or dot**: the last refresh failed, or the data is more than 15 minutes old
+  (for example, the app is closed). The last good values are still shown.
+
+## How it works
+
+| Provider | Where accounts come from | Endpoint |
 |---|---|---|
-| Claude Code | file in `auth-dir` di **CLIProxyAPI** (`~/.config/cliproxyapi/config.yaml` → `~/.config/cliproxyapi/auth/claude-*.json`). Il proxy rinnova i token, QuotaDeck li rilegge a ogni ciclo. | `GET api.anthropic.com/api/oauth/usage` |
-| Codex | `~/.codex/auth.json`, `~/.codex-*/auth.json`, `$CODEX_HOME`, più eventuali account `codex` in CLIProxyAPI | `GET chatgpt.com/backend-api/wham/usage` |
+| Codex | `~/.codex/auth.json`, `~/.codex-*/auth.json`, `$CODEX_HOME`, and `codex` accounts in CLIProxyAPI | `chatgpt.com/backend-api/wham/usage` |
+| Claude Code | CLIProxyAPI auth files (`auth-dir` in `~/.config/cliproxyapi/config.yaml`, default `~/.config/cliproxyapi/auth/`) | `api.anthropic.com/api/oauth/usage` |
 
-QuotaDeck usa i token **solo in lettura**: non li rinnova e non li scrive mai.
+- The app reads tokens from disk on every refresh. It never refreshes or writes them; the Codex CLI
+  and CLIProxyAPI keep them up to date.
+- After each refresh, it writes `~/Library/Application Support/QuotaDeck/widget-snapshot.json`
+  with percentages, dates, plans and emails only, **never tokens**.
+- The widget extension is sandboxed and can only read that file.
+- WidgetKit is asked to redraw at most once a minute. Between redraws the widget timeline advances
+  every 2 minutes to keep countdowns accurate.
 
-## Come leggere le card
+## Privacy
 
-- **Percentuale grande**: quota rimasta nella finestra (settimanale / 5 ore).
-- **Tacca verticale** (solo settimanale): dove sarebbe la barra a un consumo costante. Se la barra
-  finisce prima della tacca stai consumando più veloce del ritmo.
-- **Reset ×N** (Codex): crediti di reset del rate limit disponibili.
-- **Expires** (Codex): scadenza dell'abbonamento ChatGPT.
-- **Updated…** in arancione: l'ultimo aggiornamento è fallito (passa il mouse per il motivo); i valori
-  mostrati sono gli ultimi validi. Su HTTP 429 l'account viene ritentato dopo 5 minuti.
+QuotaDeck talks only to Anthropic and OpenAI, using your own tokens, to read your usage. It has no
+analytics or telemetry and runs no server.
 
-Passa il mouse su una card per vedere l'email dell'account. Clic destro sul widget: aggiorna,
-tieni in primo piano, nascondi.
+## Disclaimer
 
-## Build e installazione
+QuotaDeck is an independent project. It is **not affiliated with, endorsed by or supported by
+Anthropic or OpenAI**. Claude, Claude Code, Codex and ChatGPT are trademarks of their owners.
 
-```sh
-./scripts/build.sh            # crea build/QuotaDeck.app
-./scripts/build.sh --install  # copia in ~/Applications e avvia
-```
+The usage endpoints QuotaDeck calls are the ones the Claude Code and Codex CLIs use internally. They
+are **not public, documented APIs**: they may change or stop working at any time, and their use may
+be subject to each provider's terms of service. Use QuotaDeck at your own risk.
 
-Richiede Xcode / Swift 6 e macOS 14+. Il bundle è firmato ad-hoc.
-"Launch at Login" si attiva dal menu ⚙︎ del popover.
-
-Render con dati reali senza avviare l'interfaccia:
+## Development
 
 ```sh
-build/QuotaDeck.app/Contents/MacOS/QuotaDeck --snapshot out.png [--dark]
+swift build                    # debug build
+./scripts/build.sh             # release app bundle in build/
 ```
 
-## Perché non WidgetKit
+`scripts/build.sh` packages the widget extension (`Contents/PlugIns/QuotaDeckWidget.appex`) and
+generates its App Intents metadata, which Xcode would normally do.
+`scripts/release.sh` builds the signed and notarized zip attached to GitHub releases (setup steps
+are at the top of the script).
 
-I widget WidgetKit richiedono una firma con un team Apple Developer e il sistema limita i loro
-aggiornamenti (circa ogni 15 minuti). Il widget di QuotaDeck è una finestra nativa al livello del
-desktop disegnata dall'app stessa, quindi si aggiorna ogni volta che arrivano dati nuovi.
+Render with real data without opening the UI, useful for screenshots:
+
+```sh
+build/QuotaDeck.app/Contents/MacOS/QuotaDeck --snapshot out.png [--dark]         # floating panel
+build/QuotaDeck.app/Contents/MacOS/QuotaDeck --widget-snapshot out.png [--dark]  # all widget sizes
+```
+
+Icon and logos: `scripts/assets/make-app-icon.swift` regenerates the app icon, and
+`scripts/assets/extract-codex-logo.swift` extracts the Codex logo from ChatGPT.app.
+
+## Contributing
+
+Issues and pull requests are welcome. For larger changes, please open an issue first to discuss them.
+
+## License
+
+[MIT](LICENSE)

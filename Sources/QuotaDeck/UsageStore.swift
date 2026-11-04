@@ -1,6 +1,8 @@
+import QuotaDeckKit
 import AppKit
 import Combine
 import ServiceManagement
+import WidgetKit
 
 @MainActor
 final class UsageStore: ObservableObject {
@@ -9,7 +11,10 @@ final class UsageStore: ObservableObject {
 
     private var timer: Timer?
     private var backoff: [String: Date] = [:]
+    /// Claude plans come from a separate endpoint; checked at start and then every 6 hours.
+    private var planCheckedAt: [String: Date] = [:]
     private var interval: TimeInterval = 60
+    private let widget = WidgetPublisher()
 
     func start(interval: TimeInterval) {
         setInterval(interval)
@@ -43,13 +48,19 @@ final class UsageStore: ObservableObject {
         Task {
             let refs = await Task.detached(priority: .utility) { Discovery.accounts() }.value
             let now = Date()
+            let needPlan = Set(refs.filter {
+                $0.provider == .claude && (planCheckedAt[$0.id] ?? .distantPast) < now.addingTimeInterval(-6 * 3_600)
+            }.map(\.id))
 
             var results: [String: Result<Fetched, Error>] = [:]
             await withTaskGroup(of: (String, Result<Fetched, Error>).self) { group in
                 for ref in refs where (skip[ref.id] ?? .distantPast) <= now {
                     group.addTask {
-                        do { return (ref.id, .success(try await UsageAPI.fetch(ref))) }
-                        catch { return (ref.id, .failure(error)) }
+                        do {
+                            var f = try await UsageAPI.fetch(ref)
+                            if needPlan.contains(ref.id) { f.plan = await UsageAPI.claudePlan(ref) }
+                            return (ref.id, .success(f))
+                        } catch { return (ref.id, .failure(error)) }
                     }
                 }
                 for await (id, r) in group { results[id] = r }
@@ -65,6 +76,13 @@ final class UsageStore: ObservableObject {
                     acc.resetCredits = f.resetCredits
                     acc.expiresAt = f.expiresAt
                     if let e = f.email { acc.email = e }
+                    if let p = f.plan {
+                        acc.plan = p
+                        planCheckedAt[ref.id] = Date()
+                    } else if needPlan.contains(ref.id) {
+                        // Profile lookup failed: try again in ~10 minutes.
+                        planCheckedAt[ref.id] = Date().addingTimeInterval(-6 * 3_600 + 600)
+                    }
                     acc.updatedAt = Date()
                     acc.error = nil
                     backoff[ref.id] = nil
@@ -78,8 +96,46 @@ final class UsageStore: ObservableObject {
                 }
                 return acc
             }
+            widget.publish(accounts)
             isRefreshing = false
         }
+    }
+}
+
+/// Hands fresh data to the WidgetKit extension. The snapshot file is rewritten on
+/// every refresh, but WidgetKit is only asked to redraw when something visible
+/// changed, at most once a minute, so the system's reload budget lasts all day.
+@MainActor
+final class WidgetPublisher {
+    private var lastSignature = ""
+    private var lastReload = Date.distantPast
+    private var pending: DispatchWorkItem?
+
+    func publish(_ accounts: [Account]) {
+        try? SharedSnapshot.write(WidgetSnapshot(accounts: accounts))
+        let sig = signature(accounts)
+        guard sig != lastSignature else { return }
+        lastSignature = sig
+
+        pending?.cancel()
+        let wait = lastReload.addingTimeInterval(60).timeIntervalSinceNow
+        let work = DispatchWorkItem { [weak self] in
+            self?.lastReload = Date()
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, wait), execute: work)
+    }
+
+    /// What the widget shows, minus the clock-driven parts its timeline handles itself.
+    private func signature(_ accounts: [Account]) -> String {
+        accounts.map { a in
+            let windows = a.windows.map { w in
+                "\(w.label)=\(Fmt.percent(w.remainingPercent))@\(Int((w.resetsAt?.timeIntervalSince1970 ?? 0) / 60))"
+            }
+            return "\(a.id)|\(a.plan ?? "")|\(windows.joined(separator: ","))|\(a.resetCredits ?? -1)|"
+                + "\(a.expiresAt.map { Int($0.timeIntervalSince1970 / 86_400) } ?? -1)|\(a.error == nil)"
+        }.joined(separator: ";")
     }
 }
 
@@ -101,7 +157,7 @@ final class Settings: ObservableObject {
     }
 
     private init() {
-        d.register(defaults: ["showWidget": true, "widgetOnTop": false, "refreshInterval": 60.0])
+        d.register(defaults: ["showWidget": false, "widgetOnTop": false, "refreshInterval": 60.0])
         showWidget = d.bool(forKey: "showWidget")
         widgetOnTop = d.bool(forKey: "widgetOnTop")
         refreshInterval = d.double(forKey: "refreshInterval")

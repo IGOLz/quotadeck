@@ -1,3 +1,4 @@
+import QuotaDeckKit
 import Foundation
 
 /// An account found on disk, with the credentials needed to query its usage.
@@ -17,6 +18,7 @@ struct Fetched: Sendable {
     var email: String? = nil
     var resetCredits: Int? = nil
     var expiresAt: Date? = nil
+    var plan: String? = nil
 }
 
 enum FetchError: LocalizedError {
@@ -131,6 +133,47 @@ enum JWT {
     }
 }
 
+// MARK: - Plans
+
+enum Plan {
+    /// "Claude Max 20x", "Claude Pro", … Prefers the name Anthropic itself shows, when the profile has one.
+    static func claude(profile: [String: Any]) -> String? {
+        let org = profile["organization"] as? [String: Any] ?? [:]
+        let account = profile["account"] as? [String: Any] ?? [:]
+        if let name = org["plan_display_name"] as? String, !name.isEmpty {
+            return name.lowercased().hasPrefix("claude") ? name : "Claude \(name)"
+        }
+        let tier = (org["rate_limit_tier"] as? String ?? "").lowercased()
+        switch org["organization_type"] as? String {
+        case "claude_max":
+            if tier.contains("20x") { return "Claude Max 20x" }
+            if tier.contains("5x") { return "Claude Max 5x" }
+            return "Claude Max"
+        case "claude_pro": return "Claude Pro"
+        case "claude_team": return "Claude Team"
+        case "claude_enterprise": return "Claude Enterprise"
+        default:
+            if account["has_claude_max"] as? Bool == true { return "Claude Max" }
+            if account["has_claude_pro"] as? Bool == true { return "Claude Pro" }
+            return org.isEmpty ? nil : "Claude Free"
+        }
+    }
+
+    /// Codex quota comes with a ChatGPT plan: "ChatGPT Plus", "ChatGPT Pro", …
+    static func chatGPT(_ type: String) -> String {
+        switch type.lowercased() {
+        case "plus": "ChatGPT Plus"
+        case "pro": "ChatGPT Pro"
+        case "team": "ChatGPT Team"
+        case "business": "ChatGPT Business"
+        case "enterprise": "ChatGPT Enterprise"
+        case "edu": "ChatGPT Edu"
+        case "free": "ChatGPT Free"
+        default: "ChatGPT " + type.capitalized
+        }
+    }
+}
+
 // MARK: - Network
 
 enum UsageAPI {
@@ -202,10 +245,24 @@ enum UsageAPI {
 
         let credits = (obj["rate_limit_reset_credits"] as? [String: Any])?["available_count"] as? NSNumber
         let auth = ref.idToken.flatMap { JWT.payload($0)?["https://api.openai.com/auth"] as? [String: Any] }
+        let planType = obj["plan_type"] as? String ?? auth?["chatgpt_plan_type"] as? String
         return Fetched(windows: windows,
                        email: obj["email"] as? String,
                        resetCredits: credits?.intValue,
-                       expiresAt: iso(auth?["chatgpt_subscription_active_until"] as? String))
+                       expiresAt: iso(auth?["chatgpt_subscription_active_until"] as? String),
+                       plan: planType.map(Plan.chatGPT))
+    }
+
+    /// Claude's subscription, from the OAuth profile (the usage endpoint does not include it).
+    /// Returns nil on any failure; the caller retries later.
+    static func claudePlan(_ ref: AccountRef) async -> String? {
+        guard let obj = try? await get("https://api.anthropic.com/api/oauth/profile", headers: [
+            "Authorization": "Bearer \(ref.token)",
+            "anthropic-beta": "oauth-2025-04-20",
+            "User-Agent": "claude-code/2.1",
+            "Accept": "application/json",
+        ]) else { return nil }
+        return Plan.claude(profile: obj)
     }
 
     private static let isoFormatter = ISO8601DateFormatter()

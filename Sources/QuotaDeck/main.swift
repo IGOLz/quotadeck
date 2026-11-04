@@ -1,6 +1,8 @@
+import QuotaDeckKit
 import AppKit
 import Combine
 import SwiftUI
+import WidgetKit
 
 /// Borderless hosting view that lets the user drag the widget anywhere.
 final class DraggableHostingView<Content: View>: NSHostingView<Content> {
@@ -13,24 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = UsageStore()
     let settings = Settings.shared
     private var statusItem: NSStatusItem!
-    private let popover = NSPopover()
+    private lazy var statusMenu = StatusMenu(store: store, settings: settings)
     private var panel: NSPanel?
     private var bag = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ note: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "gauge.with.dots.needle.67percent",
-                                   accessibilityDescription: "QuotaDeck")
-            button.target = self
-            button.action = #selector(togglePopover)
-        }
-
-        popover.behavior = .transient
-        popover.animates = true
-        let hc = NSHostingController(rootView: PopoverView().environmentObject(store).environmentObject(settings))
-        hc.sizingOptions = .preferredContentSize
-        popover.contentViewController = hc
+        statusItem.button?.image = MenuBarIcon.image()
+        statusItem.menu = statusMenu.menu
 
         store.start(interval: settings.refreshInterval)
 
@@ -41,15 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.$accounts.receive(on: RunLoop.main).sink { [weak self] _ in self?.fitPanel() }.store(in: &bag)
     }
 
-    @objc private func togglePopover() {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            store.refresh()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
-        }
+    /// Clicking the WidgetKit widget reopens the app: open the menu bar menu.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        DispatchQueue.main.async { [weak self] in self?.statusItem.button?.performClick(nil) }
+        return false
     }
 
     // MARK: Desktop widget
@@ -130,9 +117,68 @@ func runSnapshot(to path: String, dark: Bool) {
     }
 }
 
+/// Renders the WidgetKit layouts (small, medium, large, extra large) side by side.
+@MainActor
+func runWidgetSnapshot(to path: String, dark: Bool) {
+    let store = UsageStore()
+    store.refresh(force: true)
+    Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { t in
+        MainActor.assumeIsolated {
+            guard !store.isRefreshing else { return }
+            t.invalidate()
+            let entry = QuotaEntry(date: Date(), accounts: store.accounts)
+            // macOS 26+ desktop widget sizes, with the default content margins.
+            let families: [(WidgetFamily, CGSize)] = [
+                (.systemSmall, CGSize(width: 164, height: 164)),
+                (.systemMedium, CGSize(width: 344, height: 164)),
+                (.systemLarge, CGSize(width: 344, height: 344)),
+                (.systemExtraLarge, CGSize(width: 704, height: 344)),
+            ]
+            let bg = dark ? Color(white: 0.11) : Color.white
+            let tile = { (f: WidgetFamily, size: CGSize) in
+                QuotaWidgetView(entry: entry, family: f)
+                    .padding(16)
+                    .frame(width: size.width, height: size.height)
+                    .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(bg))
+            }
+            // One small per-account widget for each account (the configurable widget).
+            let single = { (a: Account) in
+                QuotaWidgetView(entry: QuotaEntry(date: entry.date, accounts: [a]), family: .systemSmall)
+                    .padding(16)
+                    .frame(width: 164, height: 164)
+                    .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(bg))
+            }
+            let view = VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top, spacing: 20) {
+                    ForEach(entry.accounts) { single($0) }
+                }
+                HStack(alignment: .top, spacing: 20) {
+                    ForEach(0..<3, id: \.self) { i in tile(families[i].0, families[i].1) }
+                }
+                tile(families[3].0, families[3].1)
+            }
+            .padding(24)
+            .background(dark ? Color(red: 0.05, green: 0.12, blue: 0.25) : Color(red: 0.35, green: 0.55, blue: 0.8))
+            .environment(\.colorScheme, dark ? .dark : .light)
+            let r = ImageRenderer(content: view)
+            r.scale = 2
+            if let img = r.nsImage, let tiff = img.tiffRepresentation,
+               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                try? png.write(to: URL(fileURLWithPath: path))
+                print("wrote \(path)")
+            }
+            exit(0)
+        }
+    }
+}
+
 let app = NSApplication.shared
 let args = CommandLine.arguments
-if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
+if let i = args.firstIndex(of: "--widget-snapshot"), i + 1 < args.count {
+    app.setActivationPolicy(.prohibited)
+    MainActor.assumeIsolated { runWidgetSnapshot(to: args[i + 1], dark: args.contains("--dark")) }
+    app.run()
+} else if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
     app.setActivationPolicy(.prohibited)
     MainActor.assumeIsolated { runSnapshot(to: args[i + 1], dark: args.contains("--dark")) }
     app.run()
