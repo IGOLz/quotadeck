@@ -83,6 +83,10 @@ final class UsageStore: ObservableObject {
                         // Profile lookup failed: try again in ~10 minutes.
                         planCheckedAt[ref.id] = Date().addingTimeInterval(-6 * 3_600 + 600)
                     }
+                    // Claude Ultra has no 5-hour limit, only the weekly one.
+                    if acc.provider == .claude, acc.plan?.localizedCaseInsensitiveContains("ultra") == true {
+                        acc.windows.removeAll { $0.kind == .fiveHour }
+                    }
                     acc.updatedAt = Date()
                     acc.error = nil
                     backoff[ref.id] = nil

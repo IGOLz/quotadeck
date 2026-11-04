@@ -13,7 +13,7 @@ have left, for every account on your Mac.
 - **Menu bar icon** with a native menu: remaining quota and reset time for each account.
 - **Optional floating panel**, in light and dark mode.
 - Weekly and 5-hour windows, plus a **pace marker** that shows whether you are using quota faster
-  than a steady rate.
+  than a steady rate. Claude Ultra has no 5-hour limit, so only its weekly window is shown.
 - Shows each account's **plan** (e.g. *Claude Max 20x*, *ChatGPT Pro*).
 - Written in Swift with SwiftUI and AppKit. No dependencies and no CPU use while idle.
 
